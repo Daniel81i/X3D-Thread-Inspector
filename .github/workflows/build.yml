@@ -41,10 +41,24 @@ jobs:
           path: dist/X3D-Thread-Inspector.exe
           retention-days: 14
 
-      - name: Release Asset (on Tag push)
+      - name: Package Release ZIP
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $pkgDir = "X3D-Thread-Inspector-$tag"
+          New-Item -ItemType Directory -Path $pkgDir
+          Copy-Item dist\X3D-Thread-Inspector.exe $pkgDir\
+          Copy-Item README.md $pkgDir\
+          Copy-Item LICENSE $pkgDir\
+          Compress-Archive -Path $pkgDir -DestinationPath "$pkgDir.zip"
+
+      - name: Release Assets (on Tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/X3D-Thread-Inspector.exe
+          files: |
+            dist/X3D-Thread-Inspector.exe
+            X3D-Thread-Inspector-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

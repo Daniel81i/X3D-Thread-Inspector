@@ -1,0 +1,2 @@
+# Standalone build requirements
+pyinstaller>=6.0.0

@@ -1,23 +1,65 @@
-name: Build Standalone Windows EXE
+name: Build and Auto-Release
 
 on:
   push:
-    branches: [ "main", "master" ]
-    tags: [ "v*" ]
-  pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version Bump Type (patch / minor / major)"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: windows-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 過去のタグ履歴をすべて取得
+
+      - name: Determine Next Version
+        id: semver
+        shell: pwsh
+        run: |
+          # 既存の v* タグ一覧を取得
+          $tags = git tag -l "v*" --sort=v:refname
+          $latest = $tags | Select-Object -Last 1
+
+          $bumpType = "${{ github.event.inputs.bump }}"
+          if ([string]::IsNullOrWhiteSpace($bumpType)) { $bumpType = "patch" }
+
+          # タグがなければ v0.0.1 から開始
+          if (-not $latest) {
+            $nextTag = "v0.0.1"
+          } else {
+            if ($latest -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+              $major = [int]$matches[1]
+              $minor = [int]$matches[2]
+              $patch = [int]$matches[3]
+
+              switch ($bumpType) {
+                "major" { $major++; $minor = 0; $patch = 0 }
+                "minor" { $minor++; $patch = 0 }
+                default { $patch++ }
+              }
+              $nextTag = "v$major.$minor.$patch"
+            } else {
+              $nextTag = "v0.0.1"
+            }
+          }
+          Write-Host "Next release tag: $nextTag"
+          echo "tag=$nextTag" >> $env:GITHUB_OUTPUT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,22 +72,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build standalone EXE with PyInstaller
+      - name: Build Standalone EXE with PyInstaller
         run: |
           pyinstaller --noconsole --onefile --clean --name "X3D-Thread-Inspector" ccd_monitor.py
 
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: X3D-Thread-Inspector-Windows
-          path: dist/X3D-Thread-Inspector.exe
-          retention-days: 14
-
       - name: Package Release ZIP
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = "${{ steps.semver.outputs.tag }}"
           $pkgDir = "X3D-Thread-Inspector-$tag"
           New-Item -ItemType Directory -Path $pkgDir
           Copy-Item dist\X3D-Thread-Inspector.exe $pkgDir\
@@ -53,10 +87,12 @@ jobs:
           Copy-Item LICENSE $pkgDir\
           Compress-Archive -Path $pkgDir -DestinationPath "$pkgDir.zip"
 
-      - name: Release Assets (on Tag push)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.semver.outputs.tag }}
+          name: Release ${{ steps.semver.outputs.tag }}
+          generate_release_notes: true
           files: |
             dist/X3D-Thread-Inspector.exe
             X3D-Thread-Inspector-*.zip

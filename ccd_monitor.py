@@ -8,6 +8,7 @@ from tkinter import ttk
 
 # --- Windows API 定義（最小限の安全な情報取得のみ） ---
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+ntdll = ctypes.WinDLL('ntdll')
 
 TH32CS_SNAPPROCESS = 0x00000002
 TH32CS_SNAPTHREAD  = 0x00000004
@@ -46,6 +47,54 @@ class PROCESSOR_NUMBER(ctypes.Structure):
         ('Reserved', wintypes.BYTE),
     ]
 
+# --- 電源プラン (Power Plan) 取得用 ---
+powrprof = ctypes.WinDLL('powrprof')
+
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ('Data1', wintypes.DWORD),
+        ('Data2', wintypes.WORD),
+        ('Data3', wintypes.WORD),
+        ('Data4', wintypes.BYTE * 8)
+    ]
+
+KNOWN_POWER_SCHEMES = {
+    "381b4222-f694-41f0-9685-ff5bb260df2e": ("バランス", True),
+    "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c": ("高パフォーマンス", False),
+    "a1841308-3541-4fab-bc81-f71556f20b4a": ("省電力", False),
+    "e9a42b02-d5df-448d-aa00-03f14749eb61": ("究極のパフォーマンス", False)
+}
+
+def get_current_power_plan():
+    """現在のWindows電源プラン名と推奨状態 (プラン名, is_balanced) を返す"""
+    try:
+        pGuid = ctypes.POINTER(GUID)()
+        if powrprof.PowerGetActiveScheme(None, ctypes.byref(pGuid)) == 0 and pGuid:
+            guid = pGuid.contents
+            guid_str = (
+                f"{guid.Data1:08x}-{guid.Data2:04x}-{guid.Data3:04x}-"
+                + "".join(f"{b:02x}" for b in guid.Data4[:2])
+                + "-"
+                + "".join(f"{b:02x}" for b in guid.Data4[2:])
+            ).lower()
+
+            buf_size = wintypes.DWORD(256)
+            buf = ctypes.create_unicode_buffer(256)
+            name = ""
+            if powrprof.PowerReadFriendlyName(None, pGuid, None, None, buf, ctypes.byref(buf_size)) == 0:
+                name = buf.value.strip()
+
+            kernel32.LocalFree(pGuid)
+
+            if guid_str in KNOWN_POWER_SCHEMES:
+                canonical, is_rec = KNOWN_POWER_SCHEMES[guid_str]
+                display_name = name if name else canonical
+                return display_name, is_rec
+            return name if name else guid_str[:8], False
+    except Exception:
+        pass
+    return "Unknown", False
+
 GetThreadIdealProcessorEx = kernel32.GetThreadIdealProcessorEx
 GetThreadIdealProcessorEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSOR_NUMBER)]
 GetThreadIdealProcessorEx.restype = wintypes.BOOL
@@ -61,6 +110,40 @@ GetProcessAffinityMask.argtypes = [
     ctypes.POINTER(ctypes.c_size_t)
 ]
 GetProcessAffinityMask.restype = wintypes.BOOL
+
+# --- システム全体 & コア別CPU使用率取得用 ---
+SystemProcessorPerformanceInformation = 8
+
+class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ('IdleTime', ctypes.c_int64),
+        ('KernelTime', ctypes.c_int64),
+        ('UserTime', ctypes.c_int64),
+        ('DpcTime', ctypes.c_int64),
+        ('InterruptTime', ctypes.c_int64),
+        ('InterruptCount', wintypes.ULONG),
+    ]
+
+NtQuerySystemInformation = ntdll.NtQuerySystemInformation
+NtQuerySystemInformation.argtypes = [
+    ctypes.c_ulong,
+    ctypes.c_void_p,
+    ctypes.c_ulong,
+    ctypes.POINTER(ctypes.c_ulong)
+]
+NtQuerySystemInformation.restype = ctypes.c_long
+
+def get_system_core_times(num_cores=32):
+    try:
+        arr_type = SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION * num_cores
+        arr = arr_type()
+        ret_len = ctypes.c_ulong()
+        res = NtQuerySystemInformation(SystemProcessorPerformanceInformation, ctypes.byref(arr), ctypes.sizeof(arr), ctypes.byref(ret_len))
+        if res == 0:
+            return [(item.IdleTime, item.KernelTime, item.UserTime) for item in arr]
+    except Exception:
+        pass
+    return []
 
 GetThreadTimes = kernel32.GetThreadTimes
 GetThreadTimes.argtypes = [
@@ -160,6 +243,7 @@ class CCDMonitorApp:
         self.current_pid = None
         self.thread_cycles = {}       # {tid: last_cycle}
         self.thread_last_core = {}    # {tid: last_core}
+        self.last_sys_times = None    # [(idle, kernel, user)] システム全体用
         self.primary_tid = None
         self.target_name = "vrchat.exe"
 
@@ -205,6 +289,14 @@ class CCDMonitorApp:
         )
         chk_topmost.pack(side=tk.RIGHT, padx=6)
 
+        # --- 電源プラン (Power Plan) 表示バッジ ---
+        self.lbl_power_plan = tk.Label(
+            top_bar, text="PWR: Checking...", font=("Segoe UI", 8, "bold"),
+            bg="#202332", fg=self.text_secondary, padx=8, pady=2,
+            highlightthickness=1, highlightbackground=self.border_color
+        )
+        self.lbl_power_plan.pack(side=tk.RIGHT, padx=(0, 10))
+
         # --- ステータスラベル ---
         self.lbl_status = tk.Label(
             self.root, text="Searching process...", font=("Segoe UI", 9),
@@ -212,36 +304,56 @@ class CCDMonitorApp:
         )
         self.lbl_status.pack(fill=tk.X, padx=14, pady=(2, 4))
 
-        # --- サマリーカード ---
-        summary_card = tk.Frame(self.root, bg=self.card_bg, padx=14, pady=10, highlightthickness=1, highlightbackground=self.border_color)
+        # --- サマリーカード (1. システム全体CPU / 2. 対象プロセスのCCD配分) ---
+        summary_card = tk.Frame(self.root, bg=self.card_bg, padx=14, pady=8, highlightthickness=1, highlightbackground=self.border_color)
         summary_card.pack(fill=tk.X, padx=12, pady=4)
 
+        # 1. システム全体CPU行
+        sys_head = tk.Frame(summary_card, bg=self.card_bg)
+        sys_head.pack(fill=tk.X)
+
+        self.lbl_sys_total = tk.Label(
+            sys_head, text="System Total CPU: 0.0%",
+            font=("Segoe UI", 9, "bold"), fg=self.text_primary, bg=self.card_bg
+        )
+        self.lbl_sys_total.pack(side=tk.LEFT)
+
+        self.lbl_sys_ccds = tk.Label(
+            sys_head, text="[CCD0: 0.0%  |  CCD1: 0.0%]",
+            font=("Consolas", 8), fg=self.text_secondary, bg=self.card_bg
+        )
+        self.lbl_sys_ccds.pack(side=tk.RIGHT)
+
+        self.canvas_sys_bar = tk.Canvas(summary_card, height=4, bg="#101117", highlightthickness=0)
+        self.canvas_sys_bar.pack(fill=tk.X, pady=(3, 6))
+
+        # 2. 対象プロセスCCD配分行
         sum_head = tk.Frame(summary_card, bg=self.card_bg)
         sum_head.pack(fill=tk.X)
 
         self.lbl_ccd0_summary = tk.Label(
-            sum_head, text="⚡ CCD0 (3D V-Cache): 0.0%  [0 th]",
-            font=("Segoe UI", 10, "bold"), fg=self.accent_ccd0, bg=self.card_bg
+            sum_head, text="⚡ Target CCD0 (V-Cache): 0.0%  [0 th]",
+            font=("Segoe UI", 9, "bold"), fg=self.accent_ccd0, bg=self.card_bg
         )
         self.lbl_ccd0_summary.pack(side=tk.LEFT)
 
         self.lbl_ccd1_summary = tk.Label(
-            sum_head, text="🚀 CCD1 (Frequency): 0.0%  [0 th]",
-            font=("Segoe UI", 10, "bold"), fg=self.accent_ccd1, bg=self.card_bg
+            sum_head, text="🚀 Target CCD1 (Freq): 0.0%  [0 th]",
+            font=("Segoe UI", 9, "bold"), fg=self.accent_ccd1, bg=self.card_bg
         )
         self.lbl_ccd1_summary.pack(side=tk.RIGHT)
 
-        self.canvas_summary = tk.Canvas(summary_card, height=10, bg="#101117", highlightthickness=0)
-        self.canvas_summary.pack(fill=tk.X, pady=(6, 8))
+        self.canvas_summary = tk.Canvas(summary_card, height=8, bg="#101117", highlightthickness=0)
+        self.canvas_summary.pack(fill=tk.X, pady=(3, 5))
 
         lbl_core_title = tk.Label(
-            summary_card, text="Logical Core Allocation (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)",
-            font=("Segoe UI", 8), fg=self.text_secondary, bg=self.card_bg
+            summary_card, text="Logical Core Activity (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)",
+            font=("Segoe UI", 7), fg=self.text_secondary, bg=self.card_bg
         )
-        lbl_core_title.pack(anchor="w", pady=(0, 2))
+        lbl_core_title.pack(anchor="w", pady=(0, 1))
 
-        self.canvas_cores = tk.Canvas(summary_card, height=16, bg=self.card_bg, highlightthickness=0)
-        self.canvas_cores.pack(fill=tk.X, pady=(2, 0))
+        self.canvas_cores = tk.Canvas(summary_card, height=14, bg=self.card_bg, highlightthickness=0)
+        self.canvas_cores.pack(fill=tk.X, pady=(1, 0))
 
         # --- 折りたたみトグルバー ---
         toggle_bar = tk.Frame(self.root, bg=self.bg_color)
@@ -345,6 +457,18 @@ class CCDMonitorApp:
             self.lbl_status.config(text=f"Switched to {self.target_name}...", fg=self.text_secondary)
         self.root.focus_set()
 
+    def draw_system_bar(self, total_pct):
+        canvas = self.canvas_sys_bar
+        canvas.delete("all")
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w <= 1:
+            return
+        fill_w = int(w * (max(0, min(100, total_pct)) / 100.0))
+        if fill_w > 0:
+            color = self.accent_ccd0 if total_pct < 50.0 else (self.accent_warning if total_pct < 80.0 else "#ff5252")
+            canvas.create_rectangle(0, 0, fill_w, h, fill=color, outline="")
+
     def draw_summary_bar(self, ccd0_pct, ccd1_pct):
         canvas = self.canvas_summary
         canvas.delete("all")
@@ -398,6 +522,44 @@ class CCDMonitorApp:
         self.root.after(600, self.update_loop)
 
     def update_metrics(self):
+        # 1. システム全体のCPU使用率（Per-Core / Overall / CCD別）
+        cur_sys_times = get_system_core_times(32)
+        if cur_sys_times and self.last_sys_times and len(cur_sys_times) == 32 and len(self.last_sys_times) == 32:
+            core_usages = []
+            for i in range(32):
+                d_idle = cur_sys_times[i][0] - self.last_sys_times[i][0]
+                d_kernel = cur_sys_times[i][1] - self.last_sys_times[i][1]
+                d_user = cur_sys_times[i][2] - self.last_sys_times[i][2]
+                d_tot = d_kernel + d_user
+                if d_tot > 0:
+                    pct = max(0.0, min(100.0, (1.0 - (d_idle / d_tot)) * 100.0))
+                else:
+                    pct = 0.0
+                core_usages.append(pct)
+
+            sys_total_pct = sum(core_usages) / 32.0
+            sys_ccd0_pct = sum(core_usages[:16]) / 16.0
+            sys_ccd1_pct = sum(core_usages[16:]) / 16.0
+
+            self.lbl_sys_total.config(text=f"System Total CPU: {sys_total_pct:4.1f}%")
+            self.lbl_sys_ccds.config(text=f"[CCD0: {sys_ccd0_pct:4.1f}%  |  CCD1: {sys_ccd1_pct:4.1f}%]")
+            self.draw_system_bar(sys_total_pct)
+
+        self.last_sys_times = cur_sys_times
+
+        # 2. 電源プランの確認・更新
+        plan_name, is_rec = get_current_power_plan()
+        if is_rec:
+            self.lbl_power_plan.config(
+                text=f"PWR: {plan_name} (推奨)",
+                fg=self.accent_ccd0, bg="#16281e"
+            )
+        else:
+            self.lbl_power_plan.config(
+                text=f"PWR: {plan_name} (要注意)",
+                fg=self.accent_warning, bg="#332415"
+            )
+
         pids = find_pids_by_name(self.target_name)
         if not pids:
             self.lbl_status.config(text=f"⏳ '{self.target_name}' not running (searching...)", fg=self.text_secondary)

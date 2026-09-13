@@ -21,9 +21,13 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 * **Dual-CCD Parallel Inspector (CCD0 Top 5 vs CCD1 Top 5)**
   * Side-by-side inspection of the top 5 heaviest threads on each CCD.
   * Instant visual indicators (**`⮀` orange icon**) whenever a thread migrates between logical cores.
+* **🖥️ System Total CPU & Per-CCD System Usage Live Gauges**
+  * Displays overall PC-wide CPU utilization alongside individual CCD0 (V-Cache) and CCD1 (Freq) total loads in real time, letting you easily correlate the target game's distribution with full system activity.
 * **Dynamic Auto-Resizing & Collapsible UI**
   * Click the collapse button to automatically shrink the window height down to a compact **250px HUD**.
   * Expand anytime into a full **560px detailed diagnostic dashboard**.
+* **⚡ Live Power Plan Badge & Warnings**
+  * Displays active Windows power plan (e.g. `Balanced`). Instantly alerts you if switched to `High Performance` which inadvertently disables core parking on dual-CCD Ryzen processors.
 * **📌 Always on Top Toggle**
   * Easily toggle always-on-top mode on or off to send the window behind other applications when needed.
 
@@ -36,10 +40,12 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ AMD Ryzen 9 X3D - Dual-CCD & Thread Inspector                     — □ ✕ │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Target Process: [ vrchat.exe          ] [ Set / Refresh ]  [x] Always on Top │
+│ Target: [ vrchat.exe   ] [ Set ]  [PWR: Balanced (Rec)]     [x] Always on Top│
 │ ● Target: vrchat.exe  |  PID: 18420  |  Threads: 68  |  [Affinity: All Cores]│
 ├──────────────────────────────────────────────────────────────────────────┤
-│ ⚡ CCD0 (3D V-Cache): 61.2%  [38 th]       🚀 CCD1 (Frequency): 38.8%  [30 th] │
+│ 🖥️ System Total CPU: 24.5%          [CCD0: 38.2%  |  CCD1: 10.8%]       │
+│ [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]│
+│ ⚡ Target CCD0 (V-Cache): 61.2% [38th]      🚀 Target CCD1 (Freq): 38.8% [30th]│
 │ [██████████████████████░░░░░░]             [██████████████░░░░░░░░░░░░░░]│
 │ Logical Core Allocation (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)          │
 │ ■■■■■■■■ ■■■■■■■■   ■■■■■■□□ □□□□□□□□                                    │

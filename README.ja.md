@@ -4,34 +4,34 @@
 
 ---
 
-A real-time processor and thread diagnostics tool tailored for dual-CCD AMD processors such as the **AMD Ryzen 9 7950X3D / 9950X3D** (**CCD0: 3D V-Cache** vs **CCD1: Frequency**).
+**AMD Ryzen 9 7950X3D / 9950X3D** などのデュアルCCD構成（**CCD0: 3D V-Cache** / **CCD1: Frequency**）に最適化された、リアルタイム・プロセッサ＆スレッド診断ツールです。
 
-Designed specifically for heavy multitasking environments (like VRChat, SteamVR, and modern games), this tool lets you verify whether **latency-sensitive rendering and physics workloads are safely hosted on 3D V-Cache (CCD0)** while **background tasks, audio, and network threads are offloaded to the high-frequency cores (CCD1)** to preserve critical headroom against stutter.
-
----
-
-## Key Features
-
-* **100% Anti-Cheat Safe (Zero-Risk)**
-  * Fully safe to run alongside games protected by Easy Anti-Cheat (EAC), BattlEye, Vanguard, etc.
-  * No memory injection, hooking, or intrusive DLL scans. Strictly queries safe, non-invasive Windows API performance metrics.
-* **High-Accuracy Thread Role Estimation**
-  * Accurately pinpoints the process's initial **`Main/GameLoop`** thread (Primary Thread: 100% certainty).
-  * Automatically classifies active threads (`Render/Gfx`, `Physics/IK`, `Audio/Network`, `Worker`) based on real-time CPU cycle consumption ranks.
-* **Dual-CCD Parallel Inspector (CCD0 Top 5 vs CCD1 Top 5)**
-  * Side-by-side inspection of the top 5 heaviest threads on each CCD.
-  * Instant visual indicators (**`⮀` orange icon**) whenever a thread migrates between logical cores.
-* **Dynamic Auto-Resizing & Collapsible UI**
-  * Click the collapse button to automatically shrink the window height down to a compact **250px HUD**.
-  * Expand anytime into a full **560px detailed diagnostic dashboard**.
-* **📌 Always on Top Toggle**
-  * Easily toggle always-on-top mode on or off to send the window behind other applications when needed.
+VRChatなどのVR環境や高負荷ゲームにおいて、**「メイン描画や物理演算が本当に 3D V-Cache（CCD0）に乗っているか」**、**「音声や通信などのサブ処理が 高クロック（CCD1）にうまく逃げてヘッドルームを確保できているか」** を安全かつ視覚的に検証できます。
 
 ---
 
-## Preview
+## 主な特徴
 
-### 1. Expanded Diagnostic Mode (Full Dashboard)
+* **100% アンチチートセーフ（完全無害）**
+  * Easy Anti-Cheat (EAC) や BattlEye などの保護下にあるゲームでもブロックされません。
+  * メモリ改ざんやインジェクションは一切行わず、Windows標準の安全な情報取得APIのみを使用しています。
+* **高精度なスレッド役割の推定**
+  * OS起動時に最初に生成された Primary Thread を厳密特定（`Main/GameLoop` 確証度100%）。
+  * CPUサイクル消費順位に基づき、`Render/Gfx`（描画）、`Physics/IK`（物理・PhysBones）、`Audio/Network`（音声・通信）などを自動分類。
+* **CCD0 Top 5 vs CCD1 Top 5 の並列インスペクター**
+  * 左右2カラムで各CCDの主力スレッド5本（計10本）をリアルタイム追跡。
+  * コア間を移動（マイグレーション）したスレッドには **`⮀`（オレンジ色マーク）** が点灯。
+* **連動リサイズ対応の折りたたみUI**
+  * 「スレッド詳細を隠す」ボタンを押すと、**ウィンドウが自動でコンパクト（高さ250px）に縮小**。
+  * 展開すると大画面（高さ560px）の詳細ダッシュボードに戻ります。
+* **📌 Always on Top（常時最前面）切り替え**
+  * 普段はチェックを外して普通のウィンドウとして背面に回せます。
+
+---
+
+## 画面イメージ
+
+### 1. 詳細展開モード（大画面）
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ AMD Ryzen 9 X3D - Dual-CCD & Thread Inspector                     — □ ✕ │
@@ -44,7 +44,7 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 │ Logical Core Allocation (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)          │
 │ ■■■■■■■■ ■■■■■■■■   ■■■■■■□□ □□□□□□□□                                    │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [▼ Collapse Thread Details (CCD0 Top 5 vs CCD1 Top 5)]                   │
+│ [▼ スレッド詳細分析 (CCD0 Top 5 vs CCD1 Top 5) を隠す]                   │
 ├────────────────────────────────────┬─────────────────────────────────────┤
 │ ⚡ CCD0 (3D V-Cache) Top 5 Threads │ 🚀 CCD1 (Frequency) Top 5 Threads   │
 │                                    │                                     │
@@ -56,7 +56,7 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 └────────────────────────────────────┴─────────────────────────────────────┘
 ```
 
-### 2. Compact HUD Mode (Collapsed)
+### 2. コンパクトモード（折りたたみ時）
 ```text
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ AMD Ryzen 9 X3D - Dual-CCD & Thread Inspector                     — □ ✕ │
@@ -69,38 +69,38 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 │ Logical Core Allocation (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)          │
 │ ■■■■■■■■ ■■■■■■■■   ■■■■■■□□ □□□□□□□□                                    │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [▶ Expand Thread Details (CCD0 Top 5 vs CCD1 Top 5)]                     │
+│ [▶ スレッド詳細分析 (CCD0 Top 5 vs CCD1 Top 5) を展開]                   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## How to Run
+## 使い方
 
-### A. Run directly with Python
-Requires Python 3.10 or newer (Standard library only; no pip dependencies required to run):
+### A. Python環境で直接動かす場合
+Python 3.10以上がインストールされていれば、追加のパッケージ（pip等）は不要です。
 ```bash
 python ccd_monitor.py
-# Or double-click start_monitor.bat
+# または start_monitor.bat をダブルクリック
 ```
 
-### B. Build Standalone EXE Locally (PyInstaller)
+### B. 単体 EXE をビルドする場合（PyInstaller）
 ```bash
 pip install pyinstaller
 pyinstaller --noconsole --onefile --clean --name "X3D-Thread-Inspector" ccd_monitor.py
 ```
-Outputs standalone executable to `dist/X3D-Thread-Inspector.exe`.
+`dist/X3D-Thread-Inspector.exe` が生成されます。
 
 ---
 
-## Automated CI/CD (GitHub Actions)
+## GitHub Actions 自動ビルド
 
-This repository includes a ready-to-use GitHub Actions workflow (`.github/workflows/build.yml`):
+このリポジトリを GitHub にプッシュすると、GitHub Actions により自動的に Windows 用の単体 `.exe` がビルドされます。
 
-* **Every push to `main`**: Automatically builds on a clean Windows runner, tags a new version (`v0.0.1` → `v0.0.2`...), and publishes a GitHub Release with standalone `.exe` and `.zip` packages.
-* **Manual trigger**: You can trigger a release with `patch`, `minor`, or `major` version bumps directly from the GitHub Actions tab.
+1. **Actions タブ**: すべての Push / PR でビルド成果物（Artifact）としてダウンロード可能。
+2. **Releases**: GitHub Release ページに自動でバージョンがカウントアップ（`v0.0.1` → `v0.0.2`...）され、最新の `X3D-Thread-Inspector.exe` および ZIP パッケージが自動公開されます。
 
 ---
 
-## License
+## ライセンス
 MIT License

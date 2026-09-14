@@ -41,7 +41,7 @@ VRChatなどのVR環境や高負荷ゲームにおいて、**「メイン描画�
 > 3D V-Cache 搭載の **CCD0** に Main/GameLoop や Render/Gfx、Physics/IK などの重要描画・物理演算スレッドが集約され、高クロックの **CCD1** に Audio/Network やワーカースレッドが綺麗にオフロードされている様子が明確に確認できます。
 
 ### 2. コンパクトモード（折りたたみ時）
-![コンパクトモード](assets/screenshot_collapsed.png)
+![コンパクトモード](assets/screenshot.png)
 
 ---
 

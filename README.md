@@ -36,12 +36,66 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
 ## Preview
 
 ### 1. Expanded Diagnostic Mode (Full Dashboard)
-![Expanded Diagnostic Mode](assets/Screenshotfull.png)
+
+![Expanded Diagnostic Mode](assets/screenshot_full.png)
+
 > **Real-World Inspection (VRChat under heavy load)**:
 > Core gaming workloads (`Main/GameLoop`, `Render/Gfx`, and `Physics/IK`) are cleanly packed into the 3D V-Cache on **CCD0**, while background tasks (`Audio/Network`, worker threads) are offloaded onto high-frequency **CCD1**.
 
+<details>
+<summary>View ASCII Text UI Diagram</summary>
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│ AMD Ryzen 9 X3D - Dual-CCD & Thread Inspector                     — □ ✕ │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Target: [ vrchat.exe   ] [ Set ]  [PWR: Balanced (Rec)]     [x] Always on Top│
+│ ● Target: vrchat.exe  |  PID: 18420  |  Threads: 68  |  [Affinity: All Cores]│
+├──────────────────────────────────────────────────────────────────────────┤
+│ 🖥️ System Total CPU: 24.5%          [CCD0: 38.2%  |  CCD1: 10.8%]       │
+│ [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]│
+│ ⚡ Target CCD0 (V-Cache): 61.2% [38th]      🚀 Target CCD1 (Freq): 38.8% [30th]│
+│ [██████████████████████░░░░░░]             [██████████████░░░░░░░░░░░░░░]│
+│ Logical Core Allocation (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)          │
+│ ■■■■■■■■ ■■■■■■■■   ■■■■■■□□ □□□□□□□□                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│ [▼ Collapse Thread Details (CCD0 Top 5 vs CCD1 Top 5)]                   │
+├────────────────────────────────────┬─────────────────────────────────────┤
+│ ⚡ CCD0 (3D V-Cache) Top 5 Threads │ 🚀 CCD1 (Frequency) Top 5 Threads   │
+│                                    │                                     │
+│ #1 C02  Main/GameLoop   20.9%      │ #1 C16  Audio/Network  3.3%         │
+│ #2 C10  Render/Gfx       4.3%      │ #2 C18  Audio/Network  3.1%         │
+│ #3 C12  Physics/IK       4.0%      │ #3 C31  Worker         3.1%         │
+│ #4 C14  Physics/Job      3.6%      │ #4 C20  Worker         3.0%         │
+│ #5 C01  Worker           2.2%      │ #5 C22  Worker         2.8%         │
+└────────────────────────────────────┴─────────────────────────────────────┘
+```
+</details>
+
 ### 2. Compact HUD Mode (Collapsed)
-![Compact HUD Mode](assets/screenshot.png)
+
+![Compact HUD Mode](assets/screenshot_collapsed.png)
+
+<details>
+<summary>View ASCII Text UI Diagram</summary>
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│ AMD Ryzen 9 X3D - Dual-CCD & Thread Inspector                     — □ ✕ │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Target Process: [ vrchat.exe          ] [ Set / Refresh ]  [ ] Always on Top │
+│ ● Target: vrchat.exe  |  PID: 23300  |  Threads: 373 |  [Affinity: All Cores]│
+├──────────────────────────────────────────────────────────────────────────┤
+│ System Total CPU: 15.0%                    [CCD0: 22.1%  |  CCD1: 7.9%] │
+│ ⚡ CCD0 (3D V-Cache): 58.4%  [194 th]       🚀 CCD1 (Frequency): 41.6% [179 th]│
+│ [██████████████████████░░░░░░]             [██████████████░░░░░░░░░░░░░░]│
+│ Logical Core Activity (0-15: CCD0 V-Cache | 16-31: CCD1 Freq)             │
+│ ■■■■■■■■ ■■■■■■■■   ■■■■■■■■ ■■■■■■■■                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│ [▶ Expand Thread Details (CCD0 Top 5 vs CCD1 Top 5)]                     │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+</details>
 
 ---
 

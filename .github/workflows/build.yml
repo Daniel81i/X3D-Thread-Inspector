@@ -26,23 +26,26 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 過去のタグ履歴をすべて取得
+          fetch-depth: 0  # すべてのタグと履歴を取得
 
       - name: Determine Next Version
         id: semver
         shell: pwsh
         run: |
-          # 既存の v* タグ一覧を取得
+          # 既存の v* タグ一覧を取得（バージョン順にソート）
           $tags = git tag -l "v*" --sort=v:refname
           $latest = $tags | Select-Object -Last 1
 
           $bumpType = "${{ github.event.inputs.bump }}"
-          if ([string]::IsNullOrWhiteSpace($bumpType)) { $bumpType = "patch" }
+          if ([string]::IsNullOrWhiteSpace($bumpType)) {
+            $bumpType = "patch"
+          }
 
-          # タグがなければ v0.0.1 から開始
           if (-not $latest) {
             $nextTag = "v0.0.1"
+            Write-Host "No existing tag found. Starting at $nextTag"
           } else {
+            Write-Host "Latest tag found: $latest"
             if ($latest -match '^v?(\d+)\.(\d+)\.(\d+)$') {
               $major = [int]$matches[1]
               $minor = [int]$matches[2]
@@ -53,11 +56,13 @@ jobs:
                 "minor" { $minor++; $patch = 0 }
                 default { $patch++ }
               }
+
               $nextTag = "v$major.$minor.$patch"
             } else {
               $nextTag = "v0.0.1"
             }
           }
+
           Write-Host "Next release tag: $nextTag"
           echo "tag=$nextTag" >> $env:GITHUB_OUTPUT
 
@@ -84,7 +89,9 @@ jobs:
           New-Item -ItemType Directory -Path $pkgDir
           Copy-Item dist\X3D-Thread-Inspector.exe $pkgDir\
           Copy-Item README.md $pkgDir\
+          Copy-Item README.ja.md $pkgDir\
           Copy-Item LICENSE $pkgDir\
+          Copy-Item assets $pkgDir\ -Recurse
           Compress-Archive -Path $pkgDir -DestinationPath "$pkgDir.zip"
 
       - name: Create GitHub Release

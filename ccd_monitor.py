@@ -111,6 +111,10 @@ GetProcessAffinityMask.argtypes = [
 ]
 GetProcessAffinityMask.restype = wintypes.BOOL
 
+GetPriorityClass = kernel32.GetPriorityClass
+GetPriorityClass.argtypes = [wintypes.HANDLE]
+GetPriorityClass.restype = wintypes.DWORD
+
 # --- システム全体 & コア別CPU使用率取得用 ---
 SystemProcessorPerformanceInformation = 8
 
@@ -210,6 +214,25 @@ def get_process_affinity(pid):
     if res:
         return proc_mask.value
     return None
+
+PRIORITY_CLASSES = {
+    0x00000100: ("リアルタイム", "#ff5252"),
+    0x00000080: ("高", "#00e676"),
+    0x00008000: ("通常以上", "#00b0ff"),
+    0x00000020: ("通常", "#f0f2f5"),
+    0x00004000: ("通常以下", "#8e95a5"),
+    0x00000040: ("低", "#8e95a5")
+}
+
+def get_process_priority(pid):
+    hProc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not hProc:
+        return None, None
+    pri = GetPriorityClass(hProc)
+    kernel32.CloseHandle(hProc)
+    if pri in PRIORITY_CLASSES:
+        return PRIORITY_CLASSES[pri]
+    return (f"0x{pri:X}" if pri else "Unknown", "#8e95a5")
 
 class CCDMonitorApp:
     def __init__(self, root):
@@ -598,8 +621,11 @@ class CCDMonitorApp:
             elif ccd0_aff and ccd1_aff:
                 aff_text = "[Affinity: All Cores]"
 
+        pri_name, pri_color = get_process_priority(pid)
+        pri_text = f"Pri: {pri_name}" if pri_name else "Pri: --"
+
         self.lbl_status.config(
-            text=f"● Target: {self.target_name}  |  PID: {pid}  |  Threads: {len(threads)}  |  {aff_text}",
+            text=f"● Target: {self.target_name}  |  PID: {pid}  |  {pri_text}  |  Threads: {len(threads)}  |  {aff_text}",
             fg="#4caf50" if "CCD0 Only" in aff_text else self.text_primary
         )
 

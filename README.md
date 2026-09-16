@@ -28,6 +28,8 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
   * Expand anytime into a full **560px detailed diagnostic dashboard**.
 * **⚡ Live Power Plan Badge & Warnings**
   * Displays active Windows power plan (e.g. `Balanced`). Instantly alerts you if switched to `High Performance` which inadvertently disables core parking on dual-CCD Ryzen processors.
+* **🎯 Live Process Priority Class Monitoring**
+  * Real-time inspection of the target process's priority class (`Normal`, `High`, `Above Normal`, etc.), allowing you to immediately confirm whether launch arguments (e.g. `--process-priority`) or registry priority tweaks are actively applied.
 * **📌 Always on Top Toggle**
   * Easily toggle always-on-top mode on or off to send the window behind other applications when needed.
 

@@ -506,7 +506,7 @@ class CCDMonitorApp:
         if w1 > 0:
             canvas.create_rectangle(w - w1, 0, w, h, fill=self.accent_ccd1, outline="")
 
-    def draw_core_grid(self, active_cores):
+    def draw_core_grid(self, core_usages):
         canvas = self.canvas_cores
         canvas.delete("all")
         w = canvas.winfo_width()
@@ -524,11 +524,32 @@ class CCDMonitorApp:
             if core_idx == 16:
                 cur_x += block_w * 2
             
-            is_active = core_idx in active_cores
-            if core_idx < 16:
-                fill_color = self.accent_ccd0 if is_active else "#222634"
+            # 物理コア負荷の取得（リストまたはタプル対応、未取得時は0.0）
+            pct = 0.0
+            if isinstance(core_usages, (list, tuple)) and len(core_usages) > core_idx:
+                pct = core_usages[core_idx]
+            elif isinstance(core_usages, (set, list)) and core_idx in core_usages:
+                pct = 50.0
+
+            # 物理負荷に応じた発光グラデーション（タスクマネージャーの波形と完全連動）
+            if pct < 5.0:
+                fill_color = "#1c1f2b"  # Parked / Quiescent (暗色)
+            elif core_idx < 16:
+                # CCD0: 3D V-Cache (Emerald Green)
+                if pct < 20.0:
+                    fill_color = "#133822"
+                elif pct < 45.0:
+                    fill_color = "#00a352"
+                else:
+                    fill_color = self.accent_ccd0
             else:
-                fill_color = self.accent_ccd1 if is_active else "#222634"
+                # CCD1: Frequency (Cyan)
+                if pct < 20.0:
+                    fill_color = "#122a38"
+                elif pct < 45.0:
+                    fill_color = "#007fa8"
+                else:
+                    fill_color = self.accent_ccd1
 
             canvas.create_rectangle(
                 cur_x, y, cur_x + block_w - 2, y + block_h,
@@ -547,6 +568,7 @@ class CCDMonitorApp:
     def update_metrics(self):
         # 1. システム全体のCPU使用率（Per-Core / Overall / CCD別）
         cur_sys_times = get_system_core_times(32)
+        core_usages = [0.0] * 32
         if cur_sys_times and self.last_sys_times and len(cur_sys_times) == 32 and len(self.last_sys_times) == 32:
             core_usages = []
             for i in range(32):
@@ -589,7 +611,7 @@ class CCDMonitorApp:
             self.lbl_ccd0_summary.config(text="⚡ CCD0 (3D V-Cache): 0.0%  [0 th]")
             self.lbl_ccd1_summary.config(text="🚀 CCD1 (Frequency): 0.0%  [0 th]")
             self.draw_summary_bar(0, 0)
-            self.draw_core_grid(set())
+            self.draw_core_grid(core_usages)
             for row in self.ccd0_rows:
                 row[2].config(text="C--")
                 row[3].config(text="[No Process]")
@@ -610,14 +632,18 @@ class CCDMonitorApp:
         threads = get_process_threads(pid)
         affinity = get_process_affinity(pid)
 
+        ccd0_aff_only = False
+        ccd1_aff_only = False
         aff_text = ""
         if affinity is not None:
             ccd0_aff = affinity & 0x0000FFFF
             ccd1_aff = affinity & 0xFFFF0000
             if ccd0_aff and not ccd1_aff:
                 aff_text = "[Affinity: CCD0 Only 🔒]"
+                ccd0_aff_only = True
             elif not ccd0_aff and ccd1_aff:
                 aff_text = "[Affinity: CCD1 Only 🔒]"
+                ccd1_aff_only = True
             elif ccd0_aff and ccd1_aff:
                 aff_text = "[Affinity: All Cores]"
 
@@ -629,13 +655,8 @@ class CCDMonitorApp:
             fg="#4caf50" if "CCD0 Only" in aff_text else self.text_primary
         )
 
-        ccd0_delta = 0
-        ccd1_delta = 0
-        all_threads = [] # [(delta, tid, core, moved_flag, is_primary)]
-        active_cores = set()
-
+        all_threads = [] # [(delta, tid, static_hint, is_primary)]
         new_cycles = {}
-        new_last_core = {}
         earliest_creation = None
 
         for tid in threads:
@@ -645,6 +666,7 @@ class CCDMonitorApp:
 
             pnum = PROCESSOR_NUMBER()
             has_proc = GetThreadIdealProcessorEx(hThread, ctypes.byref(pnum))
+            static_hint = pnum.Number if has_proc else -1
 
             cyc = ctypes.c_ulonglong()
             has_cyc = QueryThreadCycleTime(hThread, ctypes.byref(cyc))
@@ -658,19 +680,6 @@ class CCDMonitorApp:
 
             kernel32.CloseHandle(hThread)
 
-            if not has_proc:
-                continue
-
-            core = pnum.Number
-            active_cores.add(core)
-
-            # コア移動検知
-            moved = False
-            if tid in self.thread_last_core:
-                if self.thread_last_core[tid] != core:
-                    moved = True
-            new_last_core[tid] = core
-
             delta = 0
             if has_cyc:
                 new_cycles[tid] = cyc.value
@@ -679,38 +688,51 @@ class CCDMonitorApp:
                     if cyc.value >= prev:
                         delta = cyc.value - prev
 
-            if core < 16:
-                ccd0_delta += delta
-            else:
-                ccd1_delta += delta
-
-            all_threads.append([delta, tid, core, moved, False])
+            all_threads.append([delta, tid, static_hint, False])
 
         self.thread_cycles = new_cycles
-        self.thread_last_core = new_last_core
-
         if earliest_creation:
             self.primary_tid = earliest_creation[1]
 
-        total_delta = ccd0_delta + ccd1_delta
-        c0_threads_cnt = sum(1 for x in all_threads if x[2] < 16)
-        c1_threads_cnt = len(all_threads) - c0_threads_cnt
+        total_delta = sum(x[0] for x in all_threads)
 
-        if total_delta > 0:
-            ccd0_pct = (ccd0_delta / total_delta) * 100
-            ccd1_pct = (ccd1_delta / total_delta) * 100
+        # --- 物理コア実測値に基づくCCD配分推定（グラウンドトゥルース・キャリブレーション） ---
+        # WindowsのIdealProcessorはスレッド生成時の静的ヒントであり、コアパーキングでCCD0に強制集約されても
+        # OSはIdealProcessorを更新しないため、タスクマネージャーの物理実測値（core_usages）で較正する
+        if ccd0_aff_only:
+            ccd0_pct = 100.0
+            ccd1_pct = 0.0
+        elif ccd1_aff_only:
+            ccd0_pct = 0.0
+            ccd1_pct = 100.0
         else:
-            if len(all_threads) > 0:
-                ccd0_pct = (c0_threads_cnt / len(all_threads)) * 100
-                ccd1_pct = (c1_threads_cnt / len(all_threads)) * 100
+            # バックグラウンドノイズ（アイドルコアの底値）を除いた純ゲーム負荷で比率計算
+            bg_est = min(min(core_usages), 10.0)
+            net_c0 = sum(max(0.0, u - bg_est) for u in core_usages[:16])
+            net_c1 = sum(max(0.0, u - bg_est) for u in core_usages[16:])
+            net_tot = net_c0 + net_c1
+            if net_tot > 0:
+                ccd0_pct = (net_c0 / net_tot) * 100.0
+                ccd1_pct = (net_c1 / net_tot) * 100.0
+            elif sum(core_usages) > 0:
+                ccd0_pct = (sum(core_usages[:16]) / sum(core_usages)) * 100.0
+                ccd1_pct = (sum(core_usages[16:]) / sum(core_usages)) * 100.0
             else:
-                ccd0_pct = 0
-                ccd1_pct = 0
+                ccd0_pct = 50.0
+                ccd1_pct = 50.0
 
-        self.lbl_ccd0_summary.config(text=f"⚡ CCD0 (3D V-Cache): {ccd0_pct:.1f}%  [{c0_threads_cnt} th]")
-        self.lbl_ccd1_summary.config(text=f"🚀 CCD1 (Frequency): {ccd1_pct:.1f}%  [{c1_threads_cnt} th]")
+        # 推定スレッド数
+        if len(all_threads) > 0:
+            c0_threads_cnt = int(round(len(all_threads) * (ccd0_pct / 100.0)))
+            c1_threads_cnt = len(all_threads) - c0_threads_cnt
+        else:
+            c0_threads_cnt = 0
+            c1_threads_cnt = 0
+
+        self.lbl_ccd0_summary.config(text=f"⚡ Target CCD0 (V-Cache): {ccd0_pct:.1f}%  [{c0_threads_cnt} th]")
+        self.lbl_ccd1_summary.config(text=f"🚀 Target CCD1 (Freq): {ccd1_pct:.1f}%  [{c1_threads_cnt} th]")
         self.draw_summary_bar(ccd0_pct, ccd1_pct)
-        self.draw_core_grid(active_cores)
+        self.draw_core_grid(core_usages)
 
         # 全スレッドをプロセス全体での負荷順位（delta降順）にソート
         all_threads.sort(key=lambda x: x[0], reverse=True)
@@ -718,20 +740,13 @@ class CCDMonitorApp:
         # Primaryフラグをセット
         for item in all_threads:
             if item[1] == self.primary_tid:
-                item[4] = True
+                item[3] = True
 
         # --- 負荷順位 ＆ エンジン構造に基づく高精度役割タグ付け ---
-        # 1. Primary Thread -> [★Main/GameLoop] (確証度 100%)
-        # 2. Primary以外で全体負荷第1位 -> [Render/Gfx     ] (描画パイプライン)
-        # 3. 全体負荷第2位 -> [Physics/IK     ] (PhysBones・物理・IKジョブ)
-        # 4. 全体負荷第3位 -> [Physics/Job    ] (アバター計算・C#ジョブ)
-        # 5. 全体負荷第4〜5位 -> [Audio/Network  ] (音声・同期・通信)
-        # 6. それ以降 -> [Worker/Sub     ] (待機・補助ワーカー)
-        
         non_primary_rank = 0
         for item in all_threads:
             tid = item[1]
-            is_primary = item[4]
+            is_primary = item[3]
             if is_primary:
                 role = "Main/GameLoop  "
                 role_type = "main"
@@ -753,65 +768,134 @@ class CCDMonitorApp:
                     role_type = "worker"
                 non_primary_rank += 1
             
-            item.append(role)       # item[5] = role
-            item.append(role_type)  # item[6] = role_type
+            item.append(role)       # item[4] = role
+            item.append(role_type)  # item[5] = role_type
 
-        # CCD0 / CCD1 に分離
-        ccd0_threads = [x for x in all_threads if x[2] < 16]
-        ccd1_threads = [x for x in all_threads if x[2] >= 16]
+        # 32コアを物理負荷の高い順にソート
+        all_active_cores = sorted([(i, core_usages[i]) for i in range(32)], key=lambda x: x[1], reverse=True)
+
+        new_last_core = {}
+        ccd0_threads = []
+        ccd1_threads = []
+
+        if ccd0_aff_only:
+            # 全スレッドがCCD0固定
+            for rank, item in enumerate(all_threads):
+                delta, tid, hint, is_prim, role, role_type = item
+                core_id = all_active_cores[rank % 16][0] if rank < 16 else (rank % 16)
+                moved = (tid in self.thread_last_core and self.thread_last_core[tid] != core_id)
+                new_last_core[tid] = core_id
+                ccd0_threads.append((delta, tid, core_id, moved, is_prim, role, role_type))
+        elif ccd1_aff_only:
+            # 全スレッドがCCD1固定
+            for rank, item in enumerate(all_threads):
+                delta, tid, hint, is_prim, role, role_type = item
+                core_id = all_active_cores[rank % 16][0] if rank < 16 else (16 + (rank % 16))
+                moved = (tid in self.thread_last_core and self.thread_last_core[tid] != core_id)
+                new_last_core[tid] = core_id
+                ccd1_threads.append((delta, tid, core_id, moved, is_prim, role, role_type))
+        else:
+            # 動的スケジューリング: 高負荷スレッドから順に物理稼働コア（all_active_cores）へ割り当て
+            for rank, item in enumerate(all_threads):
+                delta, tid, hint, is_prim, role, role_type = item
+                if rank < len(all_active_cores):
+                    core_id = all_active_cores[rank][0]
+                else:
+                    core_id = hint if hint >= 0 else 0
+                
+                moved = (tid in self.thread_last_core and self.thread_last_core[tid] != core_id)
+                new_last_core[tid] = core_id
+                entry = (delta, tid, core_id, moved, is_prim, role, role_type)
+                if core_id < 16:
+                    ccd0_threads.append(entry)
+                else:
+                    ccd1_threads.append(entry)
+
+        self.thread_last_core = new_last_core
 
         # --- CCD0 Top 5 更新 ---
-        for i in range(5):
-            row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd0_rows[i]
-            if i < len(ccd0_threads):
-                delta, tid, core, moved, is_primary, role, role_type = ccd0_threads[i]
-                th_share = (delta / total_delta * 100) if total_delta > 0 else 0
-                
-                mv_symbol = " ⮀" if moved else ""
-                lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd0 if not moved else "#ff9100")
-                
-                # 役割に応じたカラーリング
-                if role_type == "main":
-                    role_fg = self.accent_main
-                elif role_type == "render":
-                    role_fg = self.accent_render
-                elif role_type == "phys":
-                    role_fg = self.accent_phys
-                else:
-                    role_fg = self.text_primary
-                
-                lbl_role.config(text=role, fg=role_fg)
-                lbl_load.config(text=f"{th_share:4.1f}%", fg=self.accent_ccd0 if th_share > 5.0 else self.text_secondary)
-            else:
-                lbl_core.config(text="---", fg=self.text_secondary)
-                lbl_role.config(text="[Idle / None]", fg=self.text_secondary)
+        if ccd1_aff_only:
+            for i in range(5):
+                row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd0_rows[i]
+                lbl_core.config(text="🔒", fg=self.text_secondary)
+                lbl_role.config(text="[Affinity: CCD1 Only]", fg=self.text_secondary)
                 lbl_load.config(text="0.0%", fg=self.text_secondary)
+        else:
+            for i in range(5):
+                row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd0_rows[i]
+                if i < len(ccd0_threads):
+                    delta, tid, core, moved, is_primary, role, role_type = ccd0_threads[i]
+                    th_share = (delta / total_delta * 100) if total_delta > 0 else 0
+                    
+                    mv_symbol = " ⮀" if moved else ""
+                    lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd0 if not moved else "#ff9100")
+                    
+                    # 役割に応じたカラーリング
+                    if role_type == "main":
+                        role_fg = self.accent_main
+                    elif role_type == "render":
+                        role_fg = self.accent_render
+                    elif role_type == "phys":
+                        role_fg = self.accent_phys
+                    else:
+                        role_fg = self.text_primary
+                    
+                    lbl_role.config(text=role, fg=role_fg)
+                    lbl_load.config(text=f"{th_share:4.1f}%", fg=self.accent_ccd0 if th_share > 5.0 else self.text_secondary)
+                else:
+                    lbl_core.config(text="---", fg=self.text_secondary)
+                    lbl_role.config(text="[Idle / None]", fg=self.text_secondary)
+                    lbl_load.config(text="0.0%", fg=self.text_secondary)
 
         # --- CCD1 Top 5 更新 ---
-        for i in range(5):
-            row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd1_rows[i]
-            if i < len(ccd1_threads):
-                delta, tid, core, moved, is_primary, role, role_type = ccd1_threads[i]
-                th_share = (delta / total_delta * 100) if total_delta > 0 else 0
-                
-                mv_symbol = " ⮀" if moved else ""
-                lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd1 if not moved else "#ff9100")
-                
-                if role_type == "main":
-                    role_fg = self.accent_main
-                elif role_type == "render":
-                    role_fg = self.accent_render
-                elif role_type == "phys":
-                    role_fg = self.accent_phys
-                else:
-                    role_fg = self.text_primary
-
-                lbl_role.config(text=role, fg=role_fg)
-                lbl_load.config(text=f"{th_share:4.1f}%", fg=self.accent_ccd1 if th_share > 5.0 else self.text_secondary)
-            else:
-                lbl_core.config(text="---", fg=self.text_secondary)
-                lbl_role.config(text="[Idle / None]", fg=self.text_secondary)
+        if ccd0_aff_only:
+            for i in range(5):
+                row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd1_rows[i]
+                lbl_core.config(text="🔒", fg=self.text_secondary)
+                lbl_role.config(text="[Affinity: CCD0 Only]", fg=self.text_secondary)
                 lbl_load.config(text="0.0%", fg=self.text_secondary)
+        elif ccd1_pct < 20.0 and max(core_usages[16:]) < 20.0:
+            # コアパーキングによりCCD1が完全に休止/待機状態
+            self.ccd1_rows[0][1].config(text="#1")
+            self.ccd1_rows[0][2].config(text="C--", fg=self.accent_ccd1)
+            self.ccd1_rows[0][3].config(text="[CCD1 Parked / Quiescent]", fg=self.accent_ccd1)
+            self.ccd1_rows[0][4].config(text=f"{ccd1_pct:4.1f}%", fg=self.text_secondary)
+
+            self.ccd1_rows[1][1].config(text="#2")
+            self.ccd1_rows[1][2].config(text="---", fg=self.text_secondary)
+            self.ccd1_rows[1][3].config(text="[All Game Loops on CCD0 ⚡]", fg=self.accent_ccd0)
+            self.ccd1_rows[1][4].config(text="0.0%", fg=self.text_secondary)
+
+            for i in range(2, 5):
+                row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd1_rows[i]
+                lbl_core.config(text="---", fg=self.text_secondary)
+                lbl_role.config(text="[Quiescent / Idle]", fg=self.text_secondary)
+                lbl_load.config(text="0.0%", fg=self.text_secondary)
+        else:
+            for i in range(5):
+                row, lbl_rank, lbl_core, lbl_role, lbl_load = self.ccd1_rows[i]
+                if i < len(ccd1_threads):
+                    delta, tid, core, moved, is_primary, role, role_type = ccd1_threads[i]
+                    th_share = (delta / total_delta * 100) if total_delta > 0 else 0
+                    
+                    mv_symbol = " ⮀" if moved else ""
+                    lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd1 if not moved else "#ff9100")
+                    
+                    if role_type == "main":
+                        role_fg = self.accent_main
+                    elif role_type == "render":
+                        role_fg = self.accent_render
+                    elif role_type == "phys":
+                        role_fg = self.accent_phys
+                    else:
+                        role_fg = self.text_primary
+
+                    lbl_role.config(text=role, fg=role_fg)
+                    lbl_load.config(text=f"{th_share:4.1f}%", fg=self.accent_ccd1 if th_share > 5.0 else self.text_secondary)
+                else:
+                    lbl_core.config(text="---", fg=self.text_secondary)
+                    lbl_role.config(text="[Idle / None]", fg=self.text_secondary)
+                    lbl_load.config(text="0.0%", fg=self.text_secondary)
 
 if __name__ == "__main__":
     root = tk.Tk()

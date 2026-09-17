@@ -20,7 +20,7 @@ Designed specifically for heavy multitasking environments (like VRChat, SteamVR,
   * Automatically classifies active threads (`Render/Gfx`, `Physics/IK`, `Audio/Network`, `Worker`) based on real-time CPU cycle consumption ranks.
 * **Dual-CCD Parallel Inspector (CCD0 Top 5 vs CCD1 Top 5)**
   * Side-by-side inspection of the top 5 heaviest threads on each CCD.
-  * Instant visual indicators (**`⮀` orange icon**) whenever a thread migrates between logical cores.
+  * Instant visual indicators (**`⇄` orange icon**) whenever a thread migrates between logical cores.
 * **🖥️ System Total CPU & Per-CCD System Usage Live Gauges**
   * Displays overall PC-wide CPU utilization alongside individual CCD0 (V-Cache) and CCD1 (Freq) total loads in real time, letting you easily correlate the target game's distribution with full system activity.
 * **Dynamic Auto-Resizing & Collapsible UI**

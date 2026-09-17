@@ -411,7 +411,7 @@ class CCDMonitorApp:
             lbl_rank = tk.Label(row, text=f"#{i+1}", font=("Segoe UI", 8, "bold"), fg=self.accent_ccd0, bg="#161822", width=3, anchor="w")
             lbl_rank.pack(side=tk.LEFT)
             
-            lbl_core = tk.Label(row, text="C--", font=("Consolas", 8, "bold"), fg=self.text_primary, bg="#161822", width=4, anchor="w")
+            lbl_core = tk.Label(row, text="C--", font=("Consolas", 8, "bold"), fg=self.text_primary, bg="#161822", width=7, anchor="w")
             lbl_core.pack(side=tk.LEFT)
 
             lbl_role = tk.Label(row, text="[Waiting...]", font=("Consolas", 8), fg=self.text_secondary, bg="#161822", anchor="w")
@@ -439,7 +439,7 @@ class CCDMonitorApp:
             lbl_rank = tk.Label(row, text=f"#{i+1}", font=("Segoe UI", 8, "bold"), fg=self.accent_ccd1, bg="#161822", width=3, anchor="w")
             lbl_rank.pack(side=tk.LEFT)
             
-            lbl_core = tk.Label(row, text="C--", font=("Consolas", 8, "bold"), fg=self.text_primary, bg="#161822", width=4, anchor="w")
+            lbl_core = tk.Label(row, text="C--", font=("Consolas", 8, "bold"), fg=self.text_primary, bg="#161822", width=7, anchor="w")
             lbl_core.pack(side=tk.LEFT)
 
             lbl_role = tk.Label(row, text="[Waiting...]", font=("Consolas", 8), fg=self.text_secondary, bg="#161822", anchor="w")
@@ -827,7 +827,7 @@ class CCDMonitorApp:
                     delta, tid, core, moved, is_primary, role, role_type = ccd0_threads[i]
                     th_share = (delta / total_delta * 100) if total_delta > 0 else 0
                     
-                    mv_symbol = " ⮀" if moved else ""
+                    mv_symbol = " ⇄" if moved else ""
                     lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd0 if not moved else "#ff9100")
                     
                     # 役割に応じたカラーリング
@@ -878,7 +878,7 @@ class CCDMonitorApp:
                     delta, tid, core, moved, is_primary, role, role_type = ccd1_threads[i]
                     th_share = (delta / total_delta * 100) if total_delta > 0 else 0
                     
-                    mv_symbol = " ⮀" if moved else ""
+                    mv_symbol = " ⇄" if moved else ""
                     lbl_core.config(text=f"C{core:02d}{mv_symbol}", fg=self.accent_ccd1 if not moved else "#ff9100")
                     
                     if role_type == "main":
